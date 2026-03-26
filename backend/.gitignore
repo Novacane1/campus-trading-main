@@ -1,0 +1,6 @@
+# 已由根目录 .gitignore 覆盖，此处仅保留后端特有条目
+*.pyc
+__pycache__/
+venv/
+.env
+.pytest_cache/
