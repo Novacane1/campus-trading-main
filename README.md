@@ -121,10 +121,3 @@ docker compose down
 ```bash
 docker compose exec -T backend python scripts/build_recommendation.py
 ```
-
-## Notes
-
-- 不要把真实 `.env`、私钥、数据库备份和上传文件提交到仓库。
-- 仓库默认适合用 Docker Compose 运行；本地 Python 虚拟环境 `backend/campus` 不应提交。
-- `backend/data/models/` 是运行产物目录，推荐模型文件由脚本生成，不需要手动提交。
-
