@@ -137,7 +137,7 @@ const fetchUsers = async () => {
   try {
     const res = await adminAPI.getUsers({
       page: currentPage.value,
-      per_page: pageSize.value,
+      limit: pageSize.value,
       search: searchQuery.value || undefined
     })
     const data = res.data
@@ -151,7 +151,7 @@ const fetchUsers = async () => {
       role: u.student_id === 'admin' ? 'admin' : 'user',
       active: (u.credit_score || 0) > 0,
       can_publish: u.can_publish !== false,
-      regDate: '',
+      regDate: u.created_at ? new Date(u.created_at).toLocaleString('zh-CN') : '',
       reputation: u.credit_score || 0
     }))
     total.value = data.total || 0

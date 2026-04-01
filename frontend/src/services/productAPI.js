@@ -109,7 +109,10 @@ const productAPI = {
 
   // 获取收藏列表
   getFavorites: () => {
-    return api.get('/items/favorites')
+    return api.get('/items/favorites').then(response => {
+      response.data.products = normalizeProductList(response.data.products)
+      return response
+    })
   },
 
   // 记录浏览历史
@@ -119,7 +122,20 @@ const productAPI = {
 
   // 获取浏览历史
   getViewHistory: () => {
-    return api.get('/items/history')
+    return api.get('/items/history').then(response => {
+      response.data.products = normalizeProductList(response.data.products)
+      return response
+    })
+  },
+
+  // 清空浏览历史
+  clearViewHistory: () => {
+    return api.delete('/items/history')
+  },
+
+  // 删除单条浏览历史
+  deleteViewHistoryItem: (productId) => {
+    return api.delete(`/items/history/${productId}`)
   },
 
   // 上传商品图片

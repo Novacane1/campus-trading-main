@@ -367,7 +367,7 @@ def test_offline_models_exist():
     print("\n--- 测试12: 离线模型文件检查 ---")
     from app.services.recommendation import MODEL_DIR
 
-    models = ['tfidf_matrix', 'item_clusters', 'price_reference']
+    models = ['tfidf_matrix', 'semantic_index', 'item_clusters', 'price_reference']
     for name in models:
         path = os.path.join(MODEL_DIR, f'{name}.pkl')
         if os.path.exists(path):
@@ -376,6 +376,20 @@ def test_offline_models_exist():
         else:
             report('WARN', f'模型文件 {name}.pkl 不存在',
                    '需要运行 python scripts/build_recommendation.py')
+
+
+def test_dynamic_recall_fusion():
+    """验证: 个性化推荐已启用动态召回融合"""
+    print("\n--- 测试12.5: 动态召回融合 ---")
+
+    import inspect
+    from app.services.recommendation import RecommendationService
+    source = inspect.getsource(RecommendationService.get_recommendations)
+    if 'semantic' in source and '_resolve_recall_weights' in source:
+        report('PASS', '个性化推荐已启用动态召回融合')
+    else:
+        report('WARN', '个性化推荐仍为静态优先级合并',
+               '建议引入语义召回和动态权重融合')
 
 
 def test_full_pipeline():
@@ -482,6 +496,7 @@ def main():
     with app.app_context():
         test_data_integrity()
         test_offline_models_exist()
+        test_dynamic_recall_fusion()
         test_cf_recall_dead_code_bug()
         test_hot_recall_no_status_filter()
         test_diversity_scatter_logic()
@@ -519,7 +534,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
 

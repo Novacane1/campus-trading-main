@@ -7,6 +7,14 @@ from sqlalchemy.dialects.postgresql import UUID, ARRAY
 
 # ==================== 5 核心表（按用户规范） ====================
 
+
+def serialize_datetime(value):
+    if not value:
+        return None
+    if value.tzinfo:
+        return value.isoformat()
+    return f'{value.isoformat()}Z'
+
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -18,6 +26,9 @@ class User(db.Model):
     email = db.Column(db.String(120))
     password_hash = db.Column(db.String(256))
     can_publish = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    phone_verified = db.Column(db.Boolean, default=False)
+    email_verified = db.Column(db.Boolean, default=False)
 
     # 用户常用时间和地点
     usual_time_slots = db.Column(ARRAY(db.String))  # 常用时间段
@@ -46,6 +57,10 @@ class User(db.Model):
             'credit_score': self.credit_score,
             'email': self.email,
             'can_publish': self.can_publish,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'phone_verified': bool(self.phone_verified),
+            'email_verified': bool(self.email_verified),
+            'password_secure': bool(self.password_hash),
             'usual_time_slots': self.usual_time_slots or [],
             'usual_locations': self.usual_locations or [],
         }
@@ -131,6 +146,9 @@ class Order(db.Model):
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     quantity = db.Column(db.Integer, default=1)  # 购买数量
     status = db.Column(db.String(20), default='pending')  # pending, paid, shipped, completed, cancelled
+    payment_channel = db.Column(db.String(32), nullable=True)
+    payment_trade_no = db.Column(db.String(64), nullable=True)
+    paid_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     expire_time = db.Column(db.DateTime, nullable=True)  # 15分钟后超时自动取消
 
@@ -143,8 +161,11 @@ class Order(db.Model):
             'quantity': self.quantity or 1,
             'total_price': float(self.amount),
             'status': self.status,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'expire_time': self.expire_time.isoformat() if self.expire_time else None,
+            'payment_channel': self.payment_channel,
+            'payment_trade_no': self.payment_trade_no,
+            'paid_at': serialize_datetime(self.paid_at),
+            'created_at': serialize_datetime(self.created_at),
+            'expire_time': serialize_datetime(self.expire_time),
         }
         if self.item:
             data['item'] = self.item.to_dict(include_seller=True)
@@ -621,6 +642,3 @@ class Review(db.Model):
             except Exception:
                 data['replies'] = []
         return data
-
-
-

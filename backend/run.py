@@ -1,7 +1,17 @@
+import os
+import secrets
+
 from app import create_app, db
 from app.models.models import Category, User, Location, StudentVerification
 
 app = create_app()
+
+
+def _resolve_default_admin_password():
+    configured_password = (os.environ.get('DEFAULT_ADMIN_PASSWORD') or '').strip()
+    if configured_password:
+        return configured_password, False
+    return secrets.token_urlsafe(12), True
 
 @app.cli.command("init-db")
 def init_db():
@@ -32,14 +42,17 @@ def init_db():
 
     # Default admin user (student_id='admin' is used for admin auth)
     if not User.query.filter_by(username='admin').first():
+        admin_password, generated_password = _resolve_default_admin_password()
         admin = User(
             username='admin',
             school_name='系统管理员',
             student_id='admin',
         )
-        admin.set_password('admin123')
+        admin.set_password(admin_password)
         db.session.add(admin)
-        print("Admin user created: username=admin, password=admin123")
+        print(f"Admin user created: username=admin, password={admin_password}")
+        if generated_password:
+            print("DEFAULT_ADMIN_PASSWORD 未设置，已为管理员生成随机密码。")
 
     # 虚拟学信网数据（模拟学生身份验证库）
     students = [

@@ -17,6 +17,7 @@ __pycache__/
 *.egg
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 htmlcov/
 .coverage
 
@@ -24,6 +25,7 @@ htmlcov/
 venv/
 .venv/
 env/
+backend/campus/
 
 # ==================== Node.js ====================
 node_modules/
@@ -36,21 +38,34 @@ yarn-error.log*
 dist/
 build/
 frontend/.vite/
+coverage/
 
-# ==================== 环境配置 ====================
+# ==================== 环境配置 / 密钥 ====================
 .env
 .env.local
+.env.development
+.env.production
+.env.test
 .env.*.local
+!.env.example
+!backend/.env.example
+*.pem
+*.key
 
 # ==================== 上传文件 ====================
 backend/static/uploads/*
 !backend/static/uploads/.gitkeep
 
 # ==================== ML 模型缓存 ====================
-backend/data/models/*.pkl
+backend/data/models/*
+!backend/data/models/.gitkeep
 
-# ==================== 爬虫/数据产出 ====================
+# ==================== 运行产物 ====================
 output/
+*.log
+*.dump
+*.bak
+*.backup
 
 # ==================== 测试报告 ====================
 test_report_*.json
@@ -62,8 +77,3 @@ frontend/backend/
 .claude/
 .gemini/
 WRITING_RULES.md
-deploy.sh
-docker-compose.yml
-backend/Dockerfile
-.dockerignore
-backend/.env.example

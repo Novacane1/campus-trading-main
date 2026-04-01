@@ -56,6 +56,7 @@ def create_app(config_class=Config):
     from app.routes.review import review_bp
     from app.routes.announcements import announcement_bp
     from app.routes.banners import banner_bp
+    from app.routes.payments import payments_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(items_bp, url_prefix='/api/items')
@@ -74,6 +75,7 @@ def create_app(config_class=Config):
     app.register_blueprint(review_bp)
     app.register_blueprint(announcement_bp, url_prefix='/api/announcements')
     app.register_blueprint(banner_bp, url_prefix='/api/banners')
+    app.register_blueprint(payments_bp, url_prefix='/api/payments')
 
     # 启动订单超时定时任务
     from app.services.scheduler import init_scheduler

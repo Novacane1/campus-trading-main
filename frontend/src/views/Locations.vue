@@ -94,6 +94,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import locationAPI from '../services/locationAPI'
 
 const showApplyDialog = ref(false)
@@ -193,7 +194,7 @@ const handleApply = async () => {
       loading.value = true
       try {
         await locationAPI.applyLocation(applyForm.value)
-        console.log('地点申请提交成功，等待审核')
+        ElMessage.success('地点申请提交成功，等待审核')
         showApplyDialog.value = false
         applyForm.value = {
           name: '',
@@ -202,6 +203,7 @@ const handleApply = async () => {
         }
       } catch (error) {
         console.error('地点申请失败:', error)
+        ElMessage.error(error?.response?.data?.msg || '地点申请失败')
       } finally {
         loading.value = false
       }

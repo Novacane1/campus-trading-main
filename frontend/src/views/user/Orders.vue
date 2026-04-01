@@ -15,7 +15,7 @@
         <div v-for="order in orders" :key="order.id" class="order-card">
           <div class="order-header">
             <span class="order-id">订单号: {{ order.id }}</span>
-            <span class="order-time">{{ order.created_at }}</span>
+            <span class="order-time">{{ formatOrderTime(order.created_at) }}</span>
             <el-tag :type="statusType(order.status)" size="small">{{ statusText(order.status) }}</el-tag>
           </div>
           <div class="order-body" @click="$router.push(`/product/${order.item_id}`)">
@@ -34,9 +34,24 @@
               <span v-if="order.status === 'pending' && countdowns[order.id]" class="countdown">
                 剩余支付时间：{{ countdowns[order.id] }}
               </span>
-              <el-button v-if="order.status === 'pending'" size="small" type="primary" @click="payOrder(order)">去付款</el-button>
+              <el-button
+                v-if="order.status === 'pending' && !expiredOrderIds[order.id]"
+                size="small"
+                type="primary"
+                :loading="payingOrderId === order.id"
+                @click="payOrder(order)"
+              >
+                去付款
+              </el-button>
               <el-button v-if="order.status === 'shipped'" size="small" type="success" @click="confirmReceive(order)">确认收货</el-button>
-              <el-button v-if="order.status === 'pending'" size="small" @click="cancelOrder(order)">取消订单</el-button>
+              <el-button
+                v-if="order.status === 'pending'"
+                size="small"
+                :disabled="payingOrderId === order.id"
+                @click="cancelOrder(order)"
+              >
+                取消订单
+              </el-button>
               <el-button v-if="order.status === 'completed' && !reviewStatuses[order.id]" size="small" type="warning" @click="openReview(order)">去评价</el-button>
               <el-tag v-if="order.status === 'completed' && reviewStatuses[order.id]" type="success" size="small">已评价</el-tag>
             </template>
@@ -62,31 +77,63 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import orderAPI from '../../services/orderAPI'
 import ReviewForm from '../../components/ReviewForm.vue'
 import { getReviewStatus } from '../../services/reviewAPI'
 
+const route = useRoute()
+const router = useRouter()
 const activeTab = ref('buy')
 const loading = ref(false)
 const orders = ref([])
 const countdowns = ref({})
+const expiredOrderIds = ref({})
 const reviewStatuses = ref({})
 const showReviewDialog = ref(false)
 const currentReviewOrderId = ref('')
+const payingOrderId = ref('')
 let countdownTimer = null
+
+const parseServerDate = (value) => {
+  if (!value || typeof value !== 'string') return null
+  const normalized = /([zZ]|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const formatOrderTime = (value) => {
+  const date = parseServerDate(value)
+  if (!date) return value || '-'
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
 
 const updateCountdowns = () => {
   const now = Date.now()
   orders.value.forEach(order => {
     if (order.status === 'pending' && order.expire_time) {
-      const remaining = new Date(order.expire_time).getTime() - now
+      const expireAt = parseServerDate(order.expire_time)
+      if (!expireAt) {
+        countdowns.value[order.id] = ''
+        return
+      }
+      const remaining = expireAt.getTime() - now
       if (remaining <= 0) {
         countdowns.value[order.id] = '已超时'
-        order.status = 'cancelled'
+        expiredOrderIds.value[order.id] = true
       } else {
         const m = Math.floor(remaining / 60000)
         const s = Math.floor((remaining % 60000) / 1000)
         countdowns.value[order.id] = `${m}:${String(s).padStart(2, '0')}`
+        delete expiredOrderIds.value[order.id]
       }
     }
   })
@@ -104,6 +151,7 @@ const fetchOrders = async () => {
       ? await orderAPI.getMyOrders()
       : await orderAPI.getMySales()
     orders.value = res.data.orders || res.data || []
+    expiredOrderIds.value = {}
     if (countdownTimer) clearInterval(countdownTimer)
     startCountdown()
     // 检查已完成订单的评价状态
@@ -148,12 +196,57 @@ const statusText = (s) => {
   return m[s] || s
 }
 
+const submitPaymentForm = (paymentForm) => {
+  const container = document.createElement('div')
+  container.innerHTML = paymentForm
+  const form = container.querySelector('form')
+  if (!form) {
+    throw new Error('支付表单生成失败')
+  }
+
+  form.style.display = 'none'
+  form.setAttribute('target', '_self')
+  document.body.appendChild(form)
+  form.submit()
+}
+
+const submitLaunchForm = (orderId) => {
+  const token = localStorage.getItem('token')
+  if (!token) {
+    throw new Error('登录状态已失效，请重新登录')
+  }
+
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = '/api/payments/alipay/launch'
+  form.target = '_self'
+  form.style.display = 'none'
+
+  const orderInput = document.createElement('input')
+  orderInput.type = 'hidden'
+  orderInput.name = 'order_id'
+  orderInput.value = orderId
+  form.appendChild(orderInput)
+
+  const tokenInput = document.createElement('input')
+  tokenInput.type = 'hidden'
+  tokenInput.name = 'token'
+  tokenInput.value = token
+  form.appendChild(tokenInput)
+
+  document.body.appendChild(form)
+  form.submit()
+}
+
 const payOrder = async (order) => {
+  payingOrderId.value = order.id
   try {
-    await orderAPI.updateOrderStatus(order.id, 'paid')
-    order.status = 'paid'
-    ElMessage.success('付款成功')
-  } catch (e) { ElMessage.error('付款失败') }
+    submitLaunchForm(order.id)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || '发起支付失败')
+  } finally {
+    payingOrderId.value = ''
+  }
 }
 
 const confirmReceive = async (order) => {
@@ -183,7 +276,45 @@ const shipOrder = async (order) => {
   } catch (e) { ElMessage.error('操作失败') }
 }
 
-onMounted(() => { fetchOrders() })
+const handleAlipayReturn = async () => {
+  const orderId = route.query.order_id
+  if (route.query.alipay_return !== '1' || !orderId) {
+    return
+  }
+
+  try {
+    let latestStatus = ''
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const res = await orderAPI.syncAlipayOrderStatus(orderId)
+      latestStatus = res.data?.order?.status || ''
+      if (latestStatus && latestStatus !== 'pending') {
+        break
+      }
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
+    }
+
+    await fetchOrders()
+
+    if (latestStatus === 'paid' || latestStatus === 'shipped' || latestStatus === 'completed') {
+      ElMessage.success('支付结果已同步')
+    } else if (latestStatus === 'cancelled') {
+      ElMessage.warning('订单已关闭')
+    } else {
+      ElMessage.info('支付结果同步中，请稍后刷新订单列表')
+    }
+  } catch (e) {
+    ElMessage.warning(e?.response?.data?.msg || '未能立即同步支付结果，请稍后刷新')
+  } finally {
+    router.replace({ path: route.path, query: {} }).catch(() => {})
+  }
+}
+
+onMounted(async () => {
+  await fetchOrders()
+  await handleAlipayReturn()
+})
 onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
 </script>
 

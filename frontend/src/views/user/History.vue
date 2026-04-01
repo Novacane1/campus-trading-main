@@ -76,6 +76,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import productAPI from '../../services/productAPI'
 
 const products = ref([])
@@ -87,6 +88,9 @@ const pageSize = ref(12)
 const defaultImage = 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=product%20placeholder%20image&image_size=square'
 
 const statusText = {
+  on_sale: '在售',
+  locked: '下架',
+  deleted: '下架',
   available: '在售',
   reserved: '预留',
   sold: '已售',
@@ -141,19 +145,31 @@ const loadHistory = async () => {
 // 处理删除单条历史记录
 const handleDeleteHistory = async (productId) => {
   try {
-    // 从本地列表中移除
+    await productAPI.deleteViewHistoryItem(productId)
     products.value = products.value.filter(p => p.id !== productId)
     total.value = products.value.length
+    ElMessage.success('历史记录已删除')
   } catch (error) {
     console.error('删除历史记录失败:', error)
+    ElMessage.error(error?.response?.data?.msg || '删除历史记录失败')
   }
 }
 
 // 处理清空历史记录
 const handleClearHistory = async () => {
-  if (confirm('确定要清空所有浏览历史吗？')) {
+  try {
+    await ElMessageBox.confirm('确定要清空所有浏览历史吗？', '提示', {
+      type: 'warning'
+    })
+    await productAPI.clearViewHistory()
     products.value = []
     total.value = 0
+    ElMessage.success('浏览历史已清空')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清空历史记录失败:', error)
+      ElMessage.error(error?.response?.data?.msg || '清空历史记录失败')
+    }
   }
 }
 

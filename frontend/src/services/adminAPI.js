@@ -37,6 +37,13 @@ const adminAPI = {
     return api.get('/admin/logs', { params })
   },
 
+  exportLogs: (params) => {
+    return api.get('/admin/logs/export', {
+      params,
+      responseType: 'blob'
+    })
+  },
+
   createCategory: (data) => {
     return api.post('/admin/categories', data)
   },

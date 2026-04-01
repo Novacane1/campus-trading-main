@@ -597,10 +597,11 @@ const handleEditProfile = async () => {
       try {
         await userStore.updateProfile(editForm)
         showEditDialog.value = false
-        // 显示成功提示
+        displayedUserInfo.value = { ...userStore.userInfo }
+        ElMessage.success('资料更新成功')
       } catch (error) {
         console.error('更新失败:', error)
-        // 显示错误提示
+        ElMessage.error(error?.response?.data?.msg || '更新资料失败')
       } finally {
         loading.value = false
       }
@@ -617,10 +618,13 @@ const handleChangePassword = async () => {
       try {
         await userStore.changePassword(passwordForm)
         showPasswordDialog.value = false
-        // 显示成功提示
+        ElMessage.success('密码修改成功')
+        passwordForm.oldPassword = ''
+        passwordForm.newPassword = ''
+        passwordForm.confirmPassword = ''
       } catch (error) {
         console.error('修改密码失败:', error)
-        // 显示错误提示
+        ElMessage.error(error?.response?.data?.msg || '修改密码失败')
       } finally {
         loading.value = false
       }
@@ -628,16 +632,42 @@ const handleChangePassword = async () => {
   })
 }
 
-const verifyPhone = () => {
-  // 发送验证码到手机
-  console.log('发送验证码到手机:', userInfo.value.phone)
-  // 显示验证码输入对话框
+const verifyPhone = async () => {
+  if (!displayedUserInfo.value.phone) {
+    ElMessage.warning('请先绑定手机号')
+    return
+  }
+  loading.value = true
+  try {
+    const response = await authAPI.verifyPhone()
+    await userStore.getUserInfo()
+    displayedUserInfo.value = { ...userStore.userInfo }
+    ElMessage.success(response?.data?.msg || '手机号验证成功')
+  } catch (error) {
+    console.error('手机号验证失败:', error)
+    ElMessage.error(error?.response?.data?.msg || '手机号验证失败')
+  } finally {
+    loading.value = false
+  }
 }
 
-const verifyEmail = () => {
-  // 发送验证邮件
-  console.log('发送验证邮件到:', userInfo.value.email)
-  // 显示成功提示
+const verifyEmail = async () => {
+  if (!displayedUserInfo.value.email) {
+    ElMessage.warning('请先绑定邮箱')
+    return
+  }
+  loading.value = true
+  try {
+    const response = await authAPI.verifyEmail()
+    await userStore.getUserInfo()
+    displayedUserInfo.value = { ...userStore.userInfo }
+    ElMessage.success(response?.data?.msg || '邮箱验证成功')
+  } catch (error) {
+    console.error('邮箱验证失败:', error)
+    ElMessage.error(error?.response?.data?.msg || '邮箱验证失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 时间地点设置

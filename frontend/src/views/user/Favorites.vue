@@ -81,6 +81,9 @@ const pageSize = ref(12)
 const defaultImage = 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=product%20placeholder%20image&image_size=square'
 
 const statusText = {
+  on_sale: '在售',
+  locked: '下架',
+  deleted: '下架',
   available: '在售',
   reserved: '预留',
   sold: '已售',

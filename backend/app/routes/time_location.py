@@ -33,9 +33,26 @@ def calculate_match():
         if not current_user_id:
             return jsonify({
                 'match_score': 0,
-                'time_match': [],
-                'location_match': [],
-                'suggestions': [],
+                'time_score': 0,
+                'location_score': 0,
+                'match_level': 'very_low',
+                'has_match': False,
+                'exact_match': False,
+                'common_time_slots': [],
+                'common_locations': [],
+                'time_candidates': [],
+                'location_candidates': [],
+                'best_time_label': None,
+                'best_time_slot': None,
+                'best_time_exact': False,
+                'best_time_reason': None,
+                'best_location': None,
+                'best_location_exact': False,
+                'best_location_reason': None,
+                'buyer_missing_time_preferences': True,
+                'buyer_missing_location_preferences': True,
+                'profile_completion_tips': ['请登录后查看时空匹配信息'],
+                'action_plan': '请先登录后再查看推荐面交方案。',
                 'message': '请登录后查看时空匹配信息'
             }), 200
 
@@ -63,6 +80,8 @@ def calculate_match():
         # 使用商品的时间地点或卖家的默认时间地点
         seller_time_slots = item.available_time_slots or seller.usual_time_slots or []
         seller_locations = item.preferred_locations or seller.usual_locations or []
+        if item.location and item.location not in seller_locations:
+            seller_locations = [item.location] + seller_locations
 
         buyer_time_slots = buyer.usual_time_slots or []
         buyer_locations = buyer.usual_locations or []

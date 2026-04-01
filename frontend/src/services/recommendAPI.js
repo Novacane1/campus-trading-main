@@ -21,6 +21,21 @@ const recommendAPI = {
     })
   },
 
+  // 获取热门推荐（首页兜底推荐）
+  getHotItems: (limit = 20) => {
+    return api.get('/recommendations/hot', { params: { limit } }).then(response => {
+      const products = (response.data.products || []).map(item => ({
+        ...item,
+        title: item.title || item.name,
+        images: item.images || [],
+        seller_name: item.seller?.username,
+        user_id: item.seller_id || item.seller?.id
+      }))
+      response.data.products = products
+      return response
+    })
+  },
+
   // 获取相似商品推荐（商品详情页）
   getSimilarItems: (itemId, limit = 10) => {
     return api.get(`/recommendations/similar/${itemId}`, { params: { limit } }).then(response => {

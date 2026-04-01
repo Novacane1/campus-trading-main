@@ -3,6 +3,7 @@ from app.models.models import Order, Item
 from app import db, redis_client
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
+from app.services.order_service import cancel_order
 
 orders_bp = Blueprint('orders', __name__)
 
@@ -104,17 +105,23 @@ def batch_create_order():
             if str(item.seller_id) == str(user_id):
                 errors.append({'item_id': item_id, 'msg': f'不能购买自己的商品 "{item.name}"'})
                 continue
+            if (item.quantity or 1) < 1:
+                errors.append({'item_id': item_id, 'msg': f'"{item.name}" 库存不足'})
+                continue
 
             now = datetime.now()
             order = Order(
                 buyer_id=user_id,
                 item_id=item_id,
                 amount=item.price,
+                quantity=1,
                 status='pending',
                 created_at=now,
                 expire_time=now + timedelta(minutes=15)
             )
-            item.status = 'sold'
+            item.quantity = max(int(item.quantity or 1) - 1, 0)
+            if item.quantity <= 0:
+                item.status = 'sold'
             db.session.add(order)
             orders_created.append(order)
         except Exception as e:
@@ -187,15 +194,23 @@ def update_order_status(order_id):
         return jsonify({'msg': 'Forbidden'}), 403
     data = request.get_json()
     new_status = data.get('status')
-    valid = ['pending', 'paid', 'shipped', 'completed', 'cancelled']
+    valid = ['shipped', 'cancelled']
     if new_status not in valid:
         return jsonify({'msg': f'无效状态，可选: {valid}'}), 400
-    if new_status == 'cancelled' and order.status not in ('pending', 'paid'):
-        return jsonify({'msg': '当前状态不可取消'}), 400
-    order.status = new_status
+
     if new_status == 'cancelled':
-        if item:
-            item.status = 'on_sale'
+        if order.buyer_id != user_id:
+            return jsonify({'msg': '只有买家可以取消订单'}), 403
+        if order.status != 'pending':
+            return jsonify({'msg': '当前状态不可取消'}), 400
+        cancel_order(order)
+    elif new_status == 'shipped':
+        if not item or item.seller_id != user_id:
+            return jsonify({'msg': '只有卖家可以确认发货'}), 403
+        if order.status != 'paid':
+            return jsonify({'msg': '只有已付款订单才能发货'}), 400
+        order.status = 'shipped'
+
     db.session.commit()
     return jsonify(order.to_dict()), 200
 
@@ -207,6 +222,8 @@ def confirm_order(order_id):
     order = Order.query.get_or_404(order_id)
     if order.buyer_id != user_id:
         return jsonify({'msg': '只有买家可以确认收货'}), 403
+    if order.status != 'shipped':
+        return jsonify({'msg': '只有已发货订单才能确认收货'}), 400
     order.status = 'completed'
     db.session.commit()
     return jsonify(order.to_dict()), 200

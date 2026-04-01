@@ -21,6 +21,14 @@ const orderAPI = {
     return api.get(`/orders/${orderId}`)
   },
 
+  createAlipayPagePayment: (orderId) => {
+    return api.post('/payments/alipay/page', { order_id: orderId })
+  },
+
+  syncAlipayOrderStatus: (orderId) => {
+    return api.get(`/payments/alipay/orders/${orderId}/status`)
+  },
+
   updateOrderStatus: (orderId, status) => {
     return api.put(`/orders/${orderId}/status`, { status })
   },

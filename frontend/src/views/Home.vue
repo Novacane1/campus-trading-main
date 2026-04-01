@@ -132,15 +132,15 @@
       </div>
     </div>
 
-    <!-- 猜你喜欢（个性化推荐） -->
+    <!-- 首页推荐 -->
     <div class="recommend-section" v-if="recommendProducts.length > 0">
       <div class="section-header">
         <h2 class="section-title">
           <el-icon class="section-icon"><MagicStick /></el-icon>
-          猜你喜欢
+          {{ recommendSectionTitle }}
         </h2>
         <div class="recommend-actions">
-          <span class="recommend-tag">基于你的浏览偏好</span>
+          <span class="recommend-tag">{{ recommendSectionTag }}</span>
           <el-button
             type="primary"
             link
@@ -259,7 +259,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import {
@@ -351,6 +351,7 @@ const recommendProducts = ref([])
 const recommendPool = ref([])
 const recommendCursor = ref(0)
 const recommendLoading = ref(false)
+const recommendSource = ref('hot')
 const locations = ref([])
 const announcements = ref([])
 
@@ -364,6 +365,17 @@ const defaultLocationImages = {
 const defaultLocationImage = 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=500&q=60'
 
 const RECOMMEND_BATCH_SIZE = 8
+
+const recommendSectionTitle = computed(() => {
+  return recommendSource.value === 'personal' ? '猜你喜欢' : '为你精选'
+})
+
+const recommendSectionTag = computed(() => {
+  if (recommendSource.value === 'personal') {
+    return '基于你的浏览偏好'
+  }
+  return userStore.isLoggedIn ? '推荐不足时补充热门商品' : '登录后可获得个性化推荐'
+})
 
 const handleSearch = () => {
   if (searchQuery.value.trim()) {
@@ -410,24 +422,49 @@ const pickRecommendBatch = (reset = false) => {
   recommendCursor.value = end % pool.length
 }
 
-const loadRecommendations = async (forceRefresh = false) => {
-  if (!userStore.isLoggedIn) {
-    recommendPool.value = []
-    recommendProducts.value = []
-    recommendCursor.value = 0
-    return
-  }
+const resetRecommendations = () => {
+  recommendPool.value = []
+  recommendProducts.value = []
+  recommendCursor.value = 0
+}
 
+const setRecommendationPool = (products = [], source = 'hot') => {
+  recommendSource.value = source
+  recommendPool.value = products
+  pickRecommendBatch(true)
+}
+
+const fetchHotRecommendationProducts = async () => {
+  const response = await recommendAPI.getHotItems(60)
+  return response.data.products || []
+}
+
+const loadRecommendations = async (forceRefresh = false) => {
   recommendLoading.value = true
   try {
-    const response = await recommendAPI.getPersonalRecommendations(60, { forceRefresh })
-    recommendPool.value = response.data.products || []
-    pickRecommendBatch(true)
+    if (userStore.isLoggedIn) {
+      try {
+        const response = await recommendAPI.getPersonalRecommendations(60, { forceRefresh })
+        const personalProducts = response.data.products || []
+        if (personalProducts.length > 0) {
+          setRecommendationPool(personalProducts, 'personal')
+          return
+        }
+      } catch (error) {
+        console.error('获取个性化推荐失败，改用热门推荐兜底:', error)
+      }
+    }
+
+    const hotProducts = await fetchHotRecommendationProducts()
+    if (hotProducts.length > 0) {
+      setRecommendationPool(hotProducts, 'hot')
+      return
+    }
+
+    resetRecommendations()
   } catch (error) {
-    console.error('获取推荐商品失败:', error)
-    recommendPool.value = []
-    recommendProducts.value = []
-    recommendCursor.value = 0
+    console.error('获取首页推荐失败:', error)
+    resetRecommendations()
   } finally {
     recommendLoading.value = false
   }
@@ -687,6 +724,13 @@ onMounted(async () => {
     ]
   }
 })
+
+watch(
+  () => userStore.isLoggedIn,
+  () => {
+    loadRecommendations(false)
+  }
+)
 </script>
 
 <style scoped>

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from app.models.models import (
     User, Item, Order, SystemLog, Category, Application, Location,
     Review, Announcement, Report, Appeal, Banner
@@ -7,6 +7,7 @@ from app import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc
 from datetime import datetime, timedelta
+from app.services.order_service import cancel_order, mark_order_paid
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -186,6 +187,34 @@ def get_logs():
     total = query.count()
     logs = query.order_by(desc(SystemLog.created_at)).offset((page - 1) * limit).limit(limit).all()
     return jsonify({'logs': [l.to_dict() for l in logs], 'total': total}), 200
+
+
+@admin_bp.route('/logs/export', methods=['GET'])
+@jwt_required()
+def export_logs():
+    admin = require_admin()
+    if not admin:
+        return jsonify({'msg': 'Forbidden'}), 403
+    level = request.args.get('level', '')
+    limit = min(request.args.get('limit', 5000, type=int), 10000)
+    query = SystemLog.query
+    if level:
+        query = query.filter_by(level=level)
+    logs = query.order_by(desc(SystemLog.created_at)).limit(limit).all()
+    content = '\n'.join(
+        f"[{log.created_at.isoformat() if log.created_at else ''}] "
+        f"[{(log.level or 'info').upper()}] "
+        f"[{log.operator.username if log.operator else 'system'}] "
+        f"{log.action or ''} {log.detail or ''} "
+        f"{'(IP: ' + log.ip_address + ')' if log.ip_address else ''}".strip()
+        for log in logs
+    )
+    filename = f"system-logs-{datetime.now().strftime('%Y%m%d')}.txt"
+    return Response(
+        content,
+        mimetype='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
 
 
 @admin_bp.route('/categories', methods=['POST'])
@@ -388,11 +417,12 @@ def update_order_status(order_id):
         return jsonify({'msg': '无效的订单状态'}), 400
 
     old_status = order.status
-    order.status = new_status
-
-    # 如果取消订单，恢复商品状态
-    if new_status == 'cancelled' and order.item:
-        order.item.status = 'on_sale'
+    if new_status == 'cancelled':
+        cancel_order(order)
+    elif new_status == 'paid':
+        mark_order_paid(order, payment_channel=order.payment_channel or 'manual')
+    else:
+        order.status = new_status
 
     db.session.commit()
     log_admin_action(admin.id, '订单管理', f'修改订单状态 {old_status} -> {new_status}',
@@ -437,9 +467,7 @@ def refund_order(order_id):
     if order.status not in ['paid', 'shipped']:
         return jsonify({'msg': '该订单状态不支持退款'}), 400
 
-    order.status = 'cancelled'
-    if order.item:
-        order.item.status = 'on_sale'
+    cancel_order(order)
 
     db.session.commit()
     log_admin_action(admin.id, '订单管理', f'订单退款处理',
@@ -862,6 +890,4 @@ def sort_banners():
     log_admin_action(admin.id, 'Banner管理', '更新Banner排序',
                      '', request.remote_addr)
     return jsonify({'msg': '排序已更新'}), 200
-
-
 

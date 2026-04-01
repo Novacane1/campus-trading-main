@@ -47,7 +47,7 @@ const fetchLogs = async () => {
   try {
     const res = await adminAPI.getLogs({
       page: 1,
-      per_page: 200,
+      limit: 200,
       level: logLevel.value !== 'all' ? logLevel.value : undefined
     })
     logs.value = (res.data.logs || []).map(log => ({
@@ -87,16 +87,23 @@ const clearLogs = () => {
   ElMessage.success('已清空显示内容')
 }
 
-const exportLogs = () => {
-  const text = logs.value.map(l => `[${l.time}] [${l.level.toUpperCase()}] [${l.user}] ${l.message} ${l.ip ? '(IP: ' + l.ip + ')' : ''}`).join('\n')
-  const blob = new Blob([text], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `system-logs-${new Date().toISOString().slice(0, 10)}.txt`
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('日志导出成功')
+const exportLogs = async () => {
+  try {
+    const res = await adminAPI.exportLogs({
+      level: logLevel.value !== 'all' ? logLevel.value : undefined,
+      limit: 5000
+    })
+    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `system-logs-${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('日志导出成功')
+  } catch (e) {
+    ElMessage.error('日志导出失败')
+  }
 }
 
 onMounted(() => {

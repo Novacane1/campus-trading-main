@@ -10,28 +10,52 @@ stats_bp = Blueprint('stats', __name__)
 @stats_bp.route('/overview', methods=['GET'])
 def get_overview_stats():
     """General statistics for the dashboard"""
+    today = datetime.utcnow().date()
+    yesterday = today - timedelta(days=1)
+
     total_items = Item.query.filter(Item.status != 'deleted').count()
     total_orders = Order.query.count()
     total_revenue = db.session.query(db.func.sum(Order.amount)).scalar() or 0
+    previous_total_items = Item.query.filter(
+        Item.status != 'deleted',
+        db.func.date(Item.created_at) < today
+    ).count()
+    previous_total_orders = Order.query.filter(
+        db.func.date(Order.created_at) < today
+    ).count()
 
-    today = datetime.utcnow().date()
     today_items = Item.query.filter(
         db.func.date(Item.created_at) == today
+    ).count()
+    yesterday_items = Item.query.filter(
+        db.func.date(Item.created_at) == yesterday
     ).count()
     today_orders = Order.query.filter(
         db.func.date(Order.created_at) == today
     ).count()
+    yesterday_orders = Order.query.filter(
+        db.func.date(Order.created_at) == yesterday
+    ).count()
     avg_price = db.session.query(db.func.avg(Item.price)).filter(
         Item.status == 'on_sale'
+    ).scalar() or 0
+    yesterday_avg_price = db.session.query(db.func.avg(Item.price)).filter(
+        Item.status == 'on_sale',
+        db.func.date(Item.created_at) <= yesterday
     ).scalar() or 0
 
     return jsonify({
         'total_items': total_items,
+        'previous_total_items': previous_total_items,
         'total_orders': total_orders,
+        'previous_total_orders': previous_total_orders,
         'total_revenue': float(total_revenue),
         'today_items': today_items,
+        'yesterday_items': yesterday_items,
         'today_orders': today_orders,
-        'avg_price': round(float(avg_price), 2)
+        'yesterday_orders': yesterday_orders,
+        'avg_price': round(float(avg_price), 2),
+        'yesterday_avg_price': round(float(yesterday_avg_price), 2)
     }), 200
 
 @stats_bp.route('/price-trends', methods=['GET'])
@@ -207,6 +231,6 @@ def get_category_avg_price():
     avg_prices = df.groupby('category_name')['price'].mean().reset_index()
     avg_prices.columns = ['category', 'avg_price']
     avg_prices['avg_price'] = avg_prices['avg_price'].round(2)
+    avg_prices['name'] = avg_prices['category']
 
     return jsonify(avg_prices.to_dict(orient='records')), 200
-

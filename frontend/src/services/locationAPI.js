@@ -39,6 +39,16 @@ const locationAPI = {
   // 删除常用地点
   removeUserLocation: (id) => {
     return api.delete(`/locations/user/${id}`)
+  },
+
+  // 申请新交易地点
+  applyLocation: (locationData) => {
+    return api.post('/applications', {
+      type: 'location',
+      name: locationData.name,
+      description: locationData.description,
+      extra_type: locationData.type
+    })
   }
 }
 

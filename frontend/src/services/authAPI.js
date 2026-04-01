@@ -41,8 +41,13 @@ const authAPI = {
   },
   
   // 验证邮箱
-  verifyEmail: (token) => {
-    return api.get(`/auth/verify-email/${token}`)
+  verifyEmail: () => {
+    return api.post('/auth/verify-email')
+  },
+
+  // 验证手机号
+  verifyPhone: () => {
+    return api.post('/auth/verify-phone')
   },
   
   // 重发验证邮件

@@ -39,6 +39,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import authAPI from '../../services/authAPI'
 
 const router = useRouter()
@@ -64,13 +65,11 @@ const handleSubmit = async () => {
       loading.value = true
       try {
         await authAPI.forgotPassword(forgotPasswordForm.email)
-        // 显示成功提示
-        console.log('重置链接已发送到您的邮箱，请查收')
-        // 跳转到登录页
+        ElMessage.success('重置链接已生成，请联系管理员或查看接口返回信息')
         router.push('/login')
       } catch (error) {
         console.error('发送重置链接失败:', error)
-        // 显示错误提示
+        ElMessage.error(error?.response?.data?.msg || '发送重置链接失败')
       } finally {
         loading.value = false
       }

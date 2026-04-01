@@ -210,13 +210,20 @@ const categoryPriceOption = computed(() => ({
   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: params => `${params[0].name}<br/>平均价格: ¥${params[0].value}` },
   grid: { left: 80, right: 20, top: 20, bottom: 30 },
   xAxis: { type: 'value', name: '平均价格（元）', axisLabel: { formatter: '¥{value}', color: getCSSVar('--text-secondary') } },
-  yAxis: { type: 'category', data: categoryPrices.value.map(i => i.name), axisLabel: { color: getCSSVar('--text-secondary') } },
+  yAxis: { type: 'category', data: categoryPrices.value.map(i => i.category || i.name), axisLabel: { color: getCSSVar('--text-secondary') } },
   series: [{
     type: 'bar',
     data: categoryPrices.value.map(i => i.avg_price),
     itemStyle: { color: getCSSVar('--primary-color'), borderRadius: [0, 5, 5, 0] }
   }]
 }))
+
+const calcTrend = (current, previous) => {
+  if (!previous) {
+    return current > 0 ? 100 : 0
+  }
+  return Number((((current - previous) / previous) * 100).toFixed(1))
+}
 
 const fetchData = async () => {
   try {
@@ -231,10 +238,26 @@ const fetchData = async () => {
 
     const ov = overviewRes.data
     marketStats.value = [
-      { label: '在售商品', value: String(ov.total_items || 0), trend: 12.5 },
-      { label: '今日新增', value: String(ov.today_items || 0), trend: 5.2 },
-      { label: '累计成交', value: String(ov.total_orders || 0), trend: -2.1 },
-      { label: '市场均价', value: `¥${ov.avg_price || 0}`, trend: 1.8 }
+      {
+        label: '在售商品',
+        value: String(ov.total_items || 0),
+        trend: calcTrend(ov.total_items || 0, ov.previous_total_items || 0)
+      },
+      {
+        label: '今日新增',
+        value: String(ov.today_items || 0),
+        trend: calcTrend(ov.today_items || 0, ov.yesterday_items || 0)
+      },
+      {
+        label: '累计成交',
+        value: String(ov.total_orders || 0),
+        trend: calcTrend(ov.total_orders || 0, ov.previous_total_orders || 0)
+      },
+      {
+        label: '市场均价',
+        value: `¥${ov.avg_price || 0}`,
+        trend: calcTrend(ov.avg_price || 0, ov.yesterday_avg_price || 0)
+      }
     ]
 
     categoryDistribution.value = (categoryRes.data || []).map(item => ({

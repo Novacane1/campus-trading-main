@@ -230,7 +230,12 @@
 
           <!-- 时空匹配 -->
           <div class="time-location-section" v-if="isLoggedIn && sellerId !== userInfo.id">
-            <TimeLocationMatch :item-id="productId" />
+            <TimeLocationMatch
+              :item-id="Number(productId)"
+              :seller-id="sellerId"
+              :seller-name="product?.seller?.username || ''"
+              :item-title="product?.title || product?.name || ''"
+            />
           </div>
         </div>
         

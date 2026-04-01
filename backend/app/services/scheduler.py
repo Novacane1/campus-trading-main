@@ -12,7 +12,8 @@ def init_scheduler(app):
         """扫描超时未支付订单，自动取消并恢复商品状态"""
         with app.app_context():
             from app import db
-            from app.models.models import Order, Item
+            from app.models.models import Order
+            from app.services.order_service import cancel_order
 
             now = datetime.now()
             expired = Order.query.filter(
@@ -25,10 +26,7 @@ def init_scheduler(app):
                 return
 
             for order in expired:
-                order.status = 'cancelled'
-                item = Item.query.get(order.item_id)
-                if item and item.status == 'sold':
-                    item.status = 'on_sale'
+                cancel_order(order)
 
             try:
                 db.session.commit()

@@ -8,6 +8,7 @@ from app import db, redis_client
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
+from app.services.risk_control import RiskControlService
 
 items_bp = Blueprint('items', __name__)
 
@@ -47,7 +48,25 @@ def sanitize_text(value, max_len=None):
     return html.escape(text, quote=False)
 
 
-# 搜索同义词/关键词扩展表 —— 每组关键词互不交叉，避免跨类污染
+def normalize_string_list(values, max_len=64):
+    if not isinstance(values, list):
+        return []
+    normalized = []
+    seen = set()
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        text = text[:max_len]
+        if text not in seen:
+            seen.add(text)
+            normalized.append(text)
+    return normalized
+
+
+# 搜索同义词/关键词扩展表 —— 仅在用户搜索“组名”时展开，避免具体词被放大成整类结果
 SEARCH_SYNONYMS = {
     # ── 数码电子 ──
     '电脑': ['笔记本电脑', 'laptop', 'MacBook', 'ThinkPad', '联想电脑',
@@ -120,13 +139,16 @@ SEARCH_SYNONYMS = {
                '数据结构', '计算机网络', '操作系统', '数据库',
                '机器学习', '深度学习', 'AI', '人工智能', '设计模式'],
 
-    # ── 服装（各组独立、不交叉） ──
-    '衣服': ['外套', '卫衣', 'T恤', '裤子', '裙子', '羽绒服', '衬衫',
-             '牛仔裤', '棉服', '大衣', '毛衣', 'polo衫', '短袖', '长袖',
-             '连衣裙', '夹克', '风衣', '西装', '校服', '汉服', 'JK制服',
-             '卫裤', '运动裤', '休闲裤', '短裤', '工装裤', '阔腿裤',
-             '半身裙', '百褶裙', '针织衫', '马甲', '背心', '冲锋衣',
-             '防晒衣', '棉袄', '睡衣', '内衣', '秋衣秋裤'],
+    # ── 服装（按细分品类拆开，避免搜“裤子”命中整类上衣） ──
+    '衣服': ['上衣', '裤子', '裙子', '外套', '卫衣', 'T恤', '羽绒服', '衬衫',
+             '棉服', '大衣', '毛衣', 'polo衫', '短袖', '长袖',
+             '夹克', '风衣', '西装', '校服', '汉服', 'JK制服',
+             '针织衫', '马甲', '背心', '冲锋衣', '防晒衣',
+             '棉袄', '睡衣', '内衣'],
+    '裤子': ['长裤', '牛仔裤', '卫裤', '运动裤', '休闲裤',
+             '短裤', '工装裤', '阔腿裤', '西裤', '秋裤', '秋衣秋裤'],
+    '裙子': ['连衣裙', '半身裙', '百褶裙', '短裙', '长裙',
+             'A字裙', '吊带裙', '鱼尾裙'],
     '鞋': ['鞋子', '球鞋', '跑鞋', '运动鞋', '帆布鞋', '靴子', '板鞋',
            '凉鞋', '拖鞋', '马丁靴', '休闲鞋', '小白鞋', '高跟鞋', '皮鞋',
            'AJ', 'Air Jordan', 'Air Force', 'Yeezy', 'Nike鞋', 'Adidas鞋',
@@ -222,30 +244,28 @@ SEARCH_CATEGORIES = {
 
 def expand_search_keywords(query_str):
     """将搜索词扩展为包含同义词的关键词列表。
-    仅做精确匹配（大小写不敏感），避免子字符串匹配导致的跨类污染。
 
-    SEARCH_SYNONYMS —— 双向匹配：搜词命中 key 或 synonym 都展开整组。
-    SEARCH_CATEGORIES —— 单向匹配：仅搜词与 key 精确匹配时才展开，
-                         避免搜"手机"反向拉入整个"数码"组。
+    规则：
+    1. 永远保留用户原始搜索词。
+    2. 只有当用户输入与 SEARCH_SYNONYMS/SEARCH_CATEGORIES 的 key 精确匹配时，
+       才展开到该组的同义词或子类。
+    3. 不再按 synonym 反向展开整组，避免搜“裤子”时拉入“衣服”全组。
 
-    例：输入"电脑" → 返回 ["电脑", "笔记本", "MacBook", "ThinkPad", ...]
-    例：输入"手机" → 返回 ["手机", "iPhone", "华为手机", ...]（不含电脑、平板）
-    例：输入"数码" → 返回 ["数码", "电脑", "手机", "平板", "耳机", ...]
+    例：输入"电脑" → 返回 ["电脑", "笔记本电脑", "MacBook", ...]
+    例：输入"裤子" → 返回 ["裤子", "牛仔裤", "卫裤", "运动裤", ...]
+    例：输入"牛仔裤" → 返回 ["牛仔裤"]，保持精准匹配
+    例：输入"数码" → 返回 ["数码", "电脑", "手机", "平板", ...]
     """
+    query_str = (query_str or '').strip()
+    if not query_str:
+        return []
+
     keywords = {query_str}
     q_lower = query_str.strip().lower()
 
-    # 1. SEARCH_SYNONYMS：双向匹配（搜词 ↔ key/synonym）
+    # 1. SEARCH_SYNONYMS：仅 key 精确匹配时展开
     for key, synonyms in SEARCH_SYNONYMS.items():
-        matched = False
         if q_lower == key.lower():
-            matched = True
-        if not matched:
-            for syn in synonyms:
-                if q_lower == syn.lower():
-                    matched = True
-                    break
-        if matched:
             keywords.update(synonyms)
             keywords.add(key)
 
@@ -335,8 +355,10 @@ def get_items():
         except (ValueError, TypeError):
             pass
 
-    # 排序
-    sort = request.args.get('sort', 'latest')
+    # 排序：搜索场景默认按相关性，其余默认按最新
+    requested_sort = request.args.get('sort')
+    sort = requested_sort or ('relevance' if search_query else 'latest')
+
     if sort == 'price_asc':
         query = query.order_by(Item.price.asc())
     elif sort == 'price_desc':
@@ -345,6 +367,16 @@ def get_items():
         query = query.outerjoin(UserAction, (UserAction.item_id == Item.id) & (UserAction.action_type == 'view')) \
                      .group_by(Item.id) \
                      .order_by(db.func.count(UserAction.id).desc(), Item.created_at.desc())
+    elif sort == 'relevance' and search_query:
+        direct_match = f'%{search_query}%'
+        prefix_match = f'{search_query}%'
+        relevance_score = db.case(
+            (Item.name.ilike(prefix_match), 4),
+            (Item.name.ilike(direct_match), 3),
+            (Item.category.has(Category.name.ilike(direct_match)), 2),
+            else_=1
+        )
+        query = query.order_by(relevance_score.desc(), Item.created_at.desc())
     else:
         query = query.order_by(Item.created_at.desc())
 
@@ -434,8 +466,8 @@ def publish_item():
         location = sanitize_text(data.get('location'), max_len=128)
         quantity = data.get('quantity', 1)
         images = data.get('images') or []
-        available_time_slots = data.get('available_time_slots') or []
-        preferred_locations = data.get('preferred_locations') or []
+        available_time_slots = normalize_string_list(data.get('available_time_slots') or [], max_len=64)
+        preferred_locations = normalize_string_list(data.get('preferred_locations') or [], max_len=64)
     else:
         name = sanitize_text(request.form.get('name'), max_len=128)
         category_id = request.form.get('category_id')
@@ -453,18 +485,22 @@ def publish_item():
         time_slots_str = request.form.get('available_time_slots')
         if time_slots_str:
             try:
-                available_time_slots = json.loads(time_slots_str)
+                available_time_slots = normalize_string_list(json.loads(time_slots_str), max_len=64)
             except Exception:
                 available_time_slots = []
         locations_str = request.form.get('preferred_locations')
         if locations_str:
             try:
-                preferred_locations = json.loads(locations_str)
+                preferred_locations = normalize_string_list(json.loads(locations_str), max_len=64)
             except Exception:
                 preferred_locations = []
 
     if not all([name, category_id, price]):
         return jsonify({'msg': 'Missing required fields'}), 400
+
+    safety_check = RiskControlService.check_content_safety(' '.join(filter(None, [name, description])))
+    if not safety_check['safe']:
+        return jsonify({'msg': safety_check['reason']}), 400
 
     image_file = request.files.get('image')
     if image_file:
@@ -493,6 +529,14 @@ def publish_item():
     )
     db.session.add(item)
     db.session.commit()
+    RiskControlService.log_action(
+        user_id=user_id,
+        action_type='item_desc',
+        target_id=item.id,
+        ip_address=request.remote_addr,
+        device_id=request.headers.get('X-Device-ID'),
+        content=' '.join(filter(None, [item.name, item.description]))
+    )
     return jsonify(item.to_dict()), 201
 
 
@@ -532,10 +576,20 @@ def update_item(item_id):
     if str(item.seller_id) != str(user_id):
         return jsonify({'msg': 'Forbidden'}), 403
     data = request.get_json() or {}
+    old_price = float(item.price) if item.price is not None else None
+    content_changed = False
     if 'name' in data or 'title' in data:
         item.name = sanitize_text(data.get('name') or data.get('title'), max_len=128)
+        content_changed = True
     if 'description' in data:
         item.description = sanitize_text(data['description'], max_len=5000)
+        content_changed = True
+    if content_changed:
+        safety_check = RiskControlService.check_content_safety(
+            ' '.join(filter(None, [item.name, item.description]))
+        )
+        if not safety_check['safe']:
+            return jsonify({'msg': safety_check['reason']}), 400
     if 'price' in data:
         item.price = data['price']
     if 'category_id' in data:
@@ -546,7 +600,31 @@ def update_item(item_id):
         item.location = sanitize_text(data['location'], max_len=128)
     if 'images' in data:
         item.images = data['images']
+    if 'available_time_slots' in data:
+        item.available_time_slots = normalize_string_list(data.get('available_time_slots') or [], max_len=64) or None
+    if 'preferred_locations' in data:
+        item.preferred_locations = normalize_string_list(data.get('preferred_locations') or [], max_len=64) or None
     db.session.commit()
+    if content_changed:
+        RiskControlService.log_action(
+            user_id=user_id,
+            action_type='item_desc',
+            target_id=item.id,
+            ip_address=request.remote_addr,
+            device_id=request.headers.get('X-Device-ID'),
+            content=' '.join(filter(None, [item.name, item.description]))
+        )
+    if 'price' in data:
+        new_price = float(item.price) if item.price is not None else None
+        if old_price is not None and new_price is not None and old_price != new_price:
+            RiskControlService.log_action(
+                user_id=user_id,
+                action_type='price_change',
+                target_id=item.id,
+                ip_address=request.remote_addr,
+                device_id=request.headers.get('X-Device-ID'),
+                content=f'{old_price}->{new_price}'
+            )
     return jsonify(item.to_dict(include_seller=True)), 200
 
 

@@ -1,5 +1,15 @@
 import axios from 'axios'
 
+const getOrCreateDeviceId = () => {
+  if (typeof window === 'undefined') return null
+  let deviceId = localStorage.getItem('deviceId')
+  if (!deviceId) {
+    deviceId = window.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    localStorage.setItem('deviceId', deviceId)
+  }
+  return deviceId
+}
+
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
@@ -16,6 +26,10 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    const deviceId = getOrCreateDeviceId()
+    if (deviceId) {
+      config.headers['X-Device-ID'] = deviceId
     }
     return config
   },

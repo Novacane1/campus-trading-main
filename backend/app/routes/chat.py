@@ -3,6 +3,7 @@ from app.models.models import Message, User
 from app import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_, and_, func, desc
+from app.services.risk_control import RiskControlService
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -65,11 +66,14 @@ def get_messages(partner_id):
 @jwt_required()
 def send_message(partner_id):
     user_id = int(get_jwt_identity())
-    data = request.get_json()
-    content = data.get('content')
+    data = request.get_json() or {}
+    content = (data.get('content') or '').strip()
     msg_type = data.get('type', 'text')
     if not content:
         return jsonify({'msg': '消息内容不能为空'}), 400
+    safety_check = RiskControlService.check_content_safety(content)
+    if not safety_check['safe']:
+        return jsonify({'msg': safety_check['reason']}), 400
     partner = db.session.get(User, partner_id)
     if not partner:
         return jsonify({'msg': '用户不存在'}), 404
@@ -81,6 +85,14 @@ def send_message(partner_id):
     )
     db.session.add(message)
     db.session.commit()
+    RiskControlService.log_action(
+        user_id=user_id,
+        action_type='message',
+        target_id=partner_id,
+        ip_address=request.remote_addr,
+        device_id=request.headers.get('X-Device-ID'),
+        content=content
+    )
     return jsonify(message.to_dict()), 201
 
 
